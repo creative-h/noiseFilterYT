@@ -50,14 +50,22 @@ FFmpeg must be installed and added to your system PATH.
 
 ## Installation
 
-1. Clone or download this repository
+### Option 1: Local Installation
+
+1. Clone this repository:
+```bash
+git clone https://github.com/creative-h/noiseFilterYT.git
+cd noiseFilterYT
+```
 
 2. Install Python dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. (Optional) Set up OpenAI API key for summarization:
+3. Install FFmpeg and add to PATH (see Prerequisites below)
+
+4. (Optional) Set up OpenAI API key for summarization:
 ```bash
 # Windows
 setx OPENAI_API_KEY "your-api-key-here"
@@ -65,6 +73,20 @@ setx OPENAI_API_KEY "your-api-key-here"
 # Or set it temporarily in your terminal
 set OPENAI_API_KEY=your-api-key-here
 ```
+
+### Option 2: Google Colab (Recommended for Large Playlists)
+
+For large playlists or if you don't have a powerful local machine, use Google Colab with GPU acceleration:
+
+1. Open the notebook: [colab_notebook.ipynb](colab_notebook.ipynb)
+2. Click "Open in Colab" button
+3. Run cells sequentially to set up and process your playlist
+
+**Colab Benefits:**
+- Free GPU acceleration for faster transcription
+- No local installation required
+- Handles large downloads without storage issues
+- Easy to download results as ZIP
 
 ## Project Structure
 
@@ -79,6 +101,7 @@ youtube_pipeline/
 ├── transcribe.py       # Speech-to-text
 ├── summarize.py        # LLM summarization
 ├── main.py             # Pipeline orchestration
+├── colab_notebook.ipynb # Google Colab notebook
 ├── requirements.txt    # Python dependencies
 ├── README.md           # This file
 │
