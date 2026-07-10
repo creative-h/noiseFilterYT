@@ -4,6 +4,7 @@ Download YouTube playlists using yt-dlp.
 
 import yt_dlp
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 from config import (
@@ -27,6 +28,7 @@ class PlaylistDownloader:
         output_dir: Optional[Path] = None,
         format: str = YDLP_FORMAT,
         postprocessors: Optional[list] = None,
+        cookies_file: Optional[str] = None,
     ):
         """
         Initialize the downloader.
@@ -35,10 +37,12 @@ class PlaylistDownloader:
             output_dir: Directory to save downloaded files
             format: yt-dlp format string
             postprocessors: List of post-processing options
+            cookies_file: Path to cookies.txt file for authentication
         """
         self.output_dir = output_dir or RAW_DIR
         self.format = format
         self.postprocessors = postprocessors or YDLP_POSTPROCESSORS
+        self.cookies_file = cookies_file or os.getenv("YDLP_COOKIES_FILE")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def download_playlist(
@@ -68,6 +72,11 @@ class PlaylistDownloader:
             "no_warnings": False,
             "progress": True,
         }
+
+        # Add cookies if available
+        if self.cookies_file and Path(self.cookies_file).exists():
+            ydl_opts["cookiefile"] = self.cookies_file
+            logger.info(f"Using cookies from: {self.cookies_file}")
 
         if start is not None or end is not None:
             ydl_opts["playliststart"] = start or 1
@@ -112,6 +121,11 @@ class PlaylistDownloader:
             "quiet": False,
             "no_warnings": False,
         }
+
+        # Add cookies if available
+        if self.cookies_file and Path(self.cookies_file).exists():
+            ydl_opts["cookiefile"] = self.cookies_file
+            logger.info(f"Using cookies from: {self.cookies_file}")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:

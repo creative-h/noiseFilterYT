@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from config import (
     SKIP_EXISTING,
+    YDLP_COOKIES_FILE,
     LOG_LEVEL,
     LOG_FORMAT,
     LOG_FILE,
@@ -38,7 +39,7 @@ class Pipeline:
         self.skip_existing = skip_existing
 
         # Initialize components
-        self.downloader = PlaylistDownloader()
+        self.downloader = PlaylistDownloader(cookies_file=YDLP_COOKIES_FILE)
         self.converter = AudioConverter()
         self.denoiser = AudioDenoiser()
         self.normalizer = AudioNormalizer()

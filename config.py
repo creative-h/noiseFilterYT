@@ -22,6 +22,7 @@ for dir_path in [RAW_DIR, MP3_DIR, CLEAN_DIR, TRANSCRIPT_DIR, SUMMARY_DIR, LOGS_
 
 # yt-dlp settings
 YDLP_FORMAT = "bestaudio/best"
+YDLP_COOKIES_FILE = os.getenv("YDLP_COOKIES_FILE", "cookies.txt")  # Path to cookies.txt for authentication
 YDLP_POSTPROCESSORS = [
     {
         "key": "FFmpegExtractAudio",
