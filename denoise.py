@@ -91,7 +91,14 @@ class AudioDenoiser:
 
     def _denoise_ffmpeg(self, input_file: Path, output_file: Path) -> Path:
         """
-        Apply basic noise reduction using FFmpeg.
+        Apply speech enhancement using FFmpeg with multiple filters.
+
+        For speech/podcast audio, this applies:
+        1. Highpass filter (80Hz) - removes rumble and low-frequency noise
+        2. Lowpass filter (8000Hz) - removes high-frequency hiss
+        3. afftdn (FFT denoise) - removes background noise
+        4. compand (compressor) - evens out volume levels
+        5. equalizer - boosts speech frequencies (2-4kHz)
 
         Args:
             input_file: Path to input audio file
@@ -100,24 +107,71 @@ class AudioDenoiser:
         Returns:
             Path to the denoised audio file
         """
-        # Use FFmpeg's highpass/lowpass filters for basic noise reduction
-        # This is not as sophisticated as DeepFilterNet but provides basic cleanup
+        # Apply speech enhancement filters
+        # afftdn: FFT-based noise reduction with adaptive noise floor
+        # highpass/lowpass: Remove frequencies outside speech range (80Hz-8000Hz)
+        # compand: Dynamic range compression for clearer speech
+        # equalizer: Boost speech-critical frequencies (2.5kHz)
+        audio_filter = (
+            "highpass=f=80,lowpass=f=8000,"
+            "afftdn=nf=-25:tn=1,"
+            "compand=.3|.3:1| -60/-60|0/-10:6: -90/-60/-60/-60/-60:0.001:0.01:0.01,"
+            "equalizer=f=2500:width_type=h:width=500:g=3"
+        )
+        
         cmd = [
             "ffmpeg",
             "-i",
             str(input_file),
             "-af",
-            "highpass=f=200,lowpass=f=3000",  # Remove very low and high frequencies
+            audio_filter,
             "-y",
             str(output_file),
         ]
 
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
-            logger.info(f"Successfully applied FFmpeg noise reduction to: {output_file}")
+            logger.info(f"Successfully applied speech enhancement to: {output_file}")
             return output_file
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error applying FFmpeg noise reduction: {e.stderr}")
+            logger.error(f"Error applying speech enhancement: {e.stderr}")
+            # Try simpler filter chain if complex one fails
+            logger.info("Trying simpler filter chain...")
+            return self._denoise_ffmpeg_simple(input_file, output_file)
+
+    def _denoise_ffmpeg_simple(self, input_file: Path, output_file: Path) -> Path:
+        """
+        Apply simpler noise reduction using FFmpeg (fallback).
+
+        Args:
+            input_file: Path to input audio file
+            output_file: Path to output denoised file
+
+        Returns:
+            Path to the denoised audio file
+        """
+        # Simpler filter: just frequency filtering and basic noise reduction
+        audio_filter = (
+            "highpass=f=100,lowpass=f=7000,"
+            "afftdn=nf=-20:tn=1"
+        )
+        
+        cmd = [
+            "ffmpeg",
+            "-i",
+            str(input_file),
+            "-af",
+            audio_filter,
+            "-y",
+            str(output_file),
+        ]
+
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            logger.info(f"Successfully applied simple noise reduction to: {output_file}")
+            return output_file
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error applying simple noise reduction: {e.stderr}")
             # If FFmpeg also fails, just copy the file
             logger.warning(f"Copying original file to output as fallback")
             shutil.copy2(input_file, output_file)
