@@ -1,16 +1,20 @@
 """
 Transcribe audio files using Faster-Whisper.
+
+This module implements lazy initialization to avoid loading the Whisper model
+unless transcription is actually enabled and needed. This prevents the
+RecursionError that occurs when the model is loaded unconditionally.
 """
 
 import logging
 from pathlib import Path
 from typing import Optional, Generator
-from faster_whisper import WhisperModel
 from config import (
     TRANSCRIPT_DIR,
     WHISPER_MODEL,
     WHISPER_DEVICE,
     WHISPER_COMPUTE_TYPE,
+    TRANSCRIPTION_ENABLED,
     LOG_LEVEL,
     LOG_FORMAT,
     LOG_FILE,
@@ -21,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class AudioTranscriber:
-    """Transcribe audio files using Faster-Whisper."""
+    """Transcribe audio files using Faster-Whisper with lazy initialization."""
 
     def __init__(
         self,
@@ -29,24 +33,52 @@ class AudioTranscriber:
         model: str = WHISPER_MODEL,
         device: str = WHISPER_DEVICE,
         compute_type: str = WHISPER_COMPUTE_TYPE,
+        enabled: bool = TRANSCRIPTION_ENABLED,
     ):
         """
         Initialize the transcriber.
+
+        IMPORTANT: The Whisper model is NOT loaded here. It will be loaded
+        lazily on first use to avoid RecursionError and unnecessary resource usage.
 
         Args:
             output_dir: Directory to save transcripts
             model: Whisper model size
             device: Device to run on (auto, cpu, cuda)
             compute_type: Compute type (float16, int8, float32)
+            enabled: Whether transcription is enabled
         """
         self.output_dir = output_dir or TRANSCRIPT_DIR
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.model_name = model
         self.device = device
         self.compute_type = compute_type
+        self.enabled = enabled
+        self._model = None  # Lazy-loaded model
 
-        logger.info(f"Loading Whisper model: {model}")
-        self.model = WhisperModel(model, device=device, compute_type=compute_type)
+    def _load_model(self):
+        """Load the Whisper model lazily."""
+        if self._model is None:
+            try:
+                logger.info(f"Loading Whisper model: {self.model_name}")
+                from faster_whisper import WhisperModel
+                self._model = WhisperModel(
+                    self.model_name,
+                    device=self.device,
+                    compute_type=self.compute_type
+                )
+                logger.info("Whisper model loaded successfully")
+            except Exception as e:
+                logger.error(f"Failed to load Whisper model: {e}")
+                self._model = None
+                raise
+
+    @property
+    def model(self):
+        """Get the Whisper model, loading it lazily if needed."""
+        if self._model is None:
+            self._load_model()
+        return self._model
 
     def transcribe(
         self,
@@ -55,7 +87,7 @@ class AudioTranscriber:
         language: Optional[str] = None,
         task: str = "transcribe",
         word_timestamps: bool = False,
-    ) -> Path:
+    ) -> Optional[Path]:
         """
         Transcribe an audio file to text.
 
@@ -67,8 +99,12 @@ class AudioTranscriber:
             word_timestamps: Include word-level timestamps
 
         Returns:
-            Path to the transcript file
+            Path to the transcript file, or None if transcription is disabled
         """
+        if not self.enabled:
+            logger.info("Transcription disabled, skipping")
+            return None
+
         if not input_file.exists():
             raise FileNotFoundError(f"Input file not found: {input_file}")
 
@@ -109,7 +145,8 @@ class AudioTranscriber:
 
         except Exception as e:
             logger.error(f"Error transcribing file: {e}")
-            raise
+            # Return None instead of raising to allow pipeline to continue
+            return None
 
     def transcribe_with_timestamps(
         self,

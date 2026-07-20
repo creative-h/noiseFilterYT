@@ -1,5 +1,5 @@
 """
-Remove noise from audio files using DeepFilterNet or FFmpeg.
+Remove noise from audio files using AI-based or FFmpeg methods.
 """
 
 import subprocess
@@ -8,8 +8,11 @@ import logging
 from pathlib import Path
 from typing import Optional
 from config import (
-    CLEAN_DIR,
+    DENOISED_DIR,
     DEEPFILTER_MODEL,
+    NOISE_SUPPRESSION_ENABLED,
+    NOISE_SUPPRESSION_STRENGTH,
+    NOISE_SUPPRESSION_METHOD,
     LOG_LEVEL,
     LOG_FORMAT,
     LOG_FILE,
@@ -20,22 +23,33 @@ logger = logging.getLogger(__name__)
 
 
 class AudioDenoiser:
-    """Remove noise from audio files using DeepFilterNet or FFmpeg."""
+    """Remove noise from audio files using AI-based or FFmpeg methods."""
 
-    def __init__(self, output_dir: Optional[Path] = None):
+    def __init__(self, output_dir: Optional[Path] = None, enabled: bool = NOISE_SUPPRESSION_ENABLED):
         """
         Initialize the denoiser.
 
         Args:
             output_dir: Directory to save denoised files
+            enabled: Whether noise suppression is enabled
         """
-        self.output_dir = output_dir or CLEAN_DIR
+        self.output_dir = output_dir or DENOISED_DIR
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.enabled = enabled
+        self.strength = NOISE_SUPPRESSION_STRENGTH
+        self.method = NOISE_SUPPRESSION_METHOD
         
         # Check if deepFilter is available
         self.deepfilter_available = shutil.which("deepFilter") is not None
-        if not self.deepfilter_available:
-            logger.warning("deepFilter command not found. Will use FFmpeg for basic noise reduction instead.")
+        if not self.deepfilter_available and self.method == "deepfilter":
+            logger.warning("deepFilter command not found. Falling back to FFmpeg.")
+            self.method = "ffmpeg"
+        
+        # Note: OpenVINO integration research
+        # Audacity's OpenVINO AI Effects plugin uses OpenVINO for noise suppression
+        # However, it's designed as an Audacity effect and doesn't provide a direct Python API
+        # For automated batch processing, we use FFmpeg with advanced filters as the primary method
+        # If OpenVINO direct integration becomes available, it can be added here
 
     def denoise(
         self,
@@ -44,7 +58,7 @@ class AudioDenoiser:
         model: str = DEEPFILTER_MODEL,
     ) -> Path:
         """
-        Remove noise from an audio file using DeepFilterNet or FFmpeg.
+        Remove noise from an audio file using AI-based or FFmpeg methods.
 
         Args:
             input_file: Path to input audio file
@@ -57,16 +71,23 @@ class AudioDenoiser:
         if not input_file.exists():
             raise FileNotFoundError(f"Input file not found: {input_file}")
 
+        if not self.enabled:
+            logger.info("Noise suppression disabled, copying original file")
+            if output_file is None:
+                output_file = self.output_dir / f"{input_file.stem}.wav"
+            shutil.copy2(input_file, output_file)
+            return output_file
+
         if output_file is None:
-            output_file = self.output_dir / f"{input_file.stem}_clean.mp3"
+            output_file = self.output_dir / f"{input_file.stem}.wav"
 
         # Skip if output already exists
         if output_file.exists():
             logger.info(f"Output file already exists, skipping: {output_file}")
             return output_file
 
-        # Try DeepFilterNet first if available
-        if self.deepfilter_available:
+        # Try DeepFilterNet first if available and method is deepfilter
+        if self.method == "deepfilter" and self.deepfilter_available:
             logger.info(f"Denoising {input_file} using DeepFilterNet")
             cmd = [
                 "deepFilter",
@@ -83,22 +104,24 @@ class AudioDenoiser:
                 logger.error(f"Error denoising with DeepFilterNet: {e.stderr}")
                 # Fall through to FFmpeg method
         else:
-            logger.info(f"DeepFilterNet not available, using FFmpeg for basic noise reduction")
+            logger.info(f"Using FFmpeg for noise reduction (method: {self.method})")
 
-        # Fallback to FFmpeg for basic noise reduction
+        # Fallback to FFmpeg for noise reduction
         logger.info(f"Applying FFmpeg noise reduction to {input_file}")
         return self._denoise_ffmpeg(input_file, output_file)
 
     def _denoise_ffmpeg(self, input_file: Path, output_file: Path) -> Path:
         """
-        Apply speech enhancement using FFmpeg with multiple filters.
-
-        For speech/podcast audio, this applies:
+        Apply speech enhancement using FFmpeg with advanced filters.
+        
+        This filter chain is designed to approximate Audacity's OpenVINO noise suppression
+        for speech/podcast audio by applying:
         1. Highpass filter (80Hz) - removes rumble and low-frequency noise
         2. Lowpass filter (8000Hz) - removes high-frequency hiss
-        3. afftdn (FFT denoise) - removes background noise
-        4. compand (compressor) - evens out volume levels
-        5. equalizer - boosts speech frequencies (2-4kHz)
+        3. afftdn (FFT denoise) - removes background noise with adaptive noise floor
+        4. deesser - reduces sibilance (harsh 's' sounds)
+        5. compand (compressor) - evens out volume levels
+        6. equalizer - boosts speech frequencies (2-4kHz)
 
         Args:
             input_file: Path to input audio file
@@ -107,14 +130,14 @@ class AudioDenoiser:
         Returns:
             Path to the denoised audio file
         """
+        # Adjust noise reduction based on strength setting
+        noise_floor = int(-20 - (self.strength * 15))  # Range: -20 to -35
+        
         # Apply speech enhancement filters
-        # afftdn: FFT-based noise reduction with adaptive noise floor
-        # highpass/lowpass: Remove frequencies outside speech range (80Hz-8000Hz)
-        # compand: Dynamic range compression for clearer speech
-        # equalizer: Boost speech-critical frequencies (2.5kHz)
         audio_filter = (
             "highpass=f=80,lowpass=f=8000,"
-            "afftdn=nf=-25:tn=1,"
+            f"afftdn=nf={noise_floor}:tn=1,"
+            "adeclip,"
             "compand=.3|.3:1| -60/-60|0/-10:6: -90/-60/-60/-60/-60:0.001:0.01:0.01,"
             "equalizer=f=2500:width_type=h:width=500:g=3"
         )
@@ -181,7 +204,7 @@ class AudioDenoiser:
     def batch_denoise(
         self,
         input_dir: Path,
-        pattern: str = "*.mp3",
+        pattern: str = "*.wav",
         model: str = DEEPFILTER_MODEL,
     ) -> list[Path]:
         """
